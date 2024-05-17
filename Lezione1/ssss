@@ -1,0 +1,103 @@
+import paramiko
+import time
+
+def send_commands(connection, commands):
+    for command in commands:
+        connection.send(command + '\n')
+        time.sleep(1)
+    output = connection.recv(65535).decode('utf-8')
+    print(output)
+
+def configure_device(device_ip, username, password):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(device_ip, username=username, password=password, look_for_keys=False, allow_agent=False)
+    
+    connection = client.invoke_shell()
+    time.sleep(1)
+    
+    connection.send('enable\n')
+    time.sleep(1)
+    connection.send(password + '\n')
+    time.sleep(1)
+    
+    connection.send('configure terminal\n')
+    time.sleep(1)
+
+    # Commands for enabling SSH
+    ssh_commands = [
+        'username SSHadmin secret $cisco123!',
+        'ip domain-name ccna-lab.com',
+        'crypto key generate rsa modulus 1024',
+        'line vty 0 4',
+        'transport input ssh',
+        'login local'
+    ]
+    send_commands(connection, ssh_commands)
+
+    # Commands for enabling HTTPS
+    https_commands = [
+        'ip http secure-server',
+        'ip http authentication local'
+    ]
+    send_commands(connection, https_commands)
+
+    # Commands for extended ACLs
+    acl_commands = [
+        'ip access-list extended SALES_TO_MANAGEMENT_SSH',
+        'deny tcp any any eq 22',
+        'permit ip any any',
+        
+        'ip access-list extended SALES_TO_MANAGEMENT_WEB',
+        'deny tcp any any eq 80',
+        'deny tcp any any eq 443',
+        'deny tcp any host 10.20.0.1 eq 80',
+        'deny tcp any host 10.20.0.1 eq 443',
+        'deny tcp any host 10.30.0.1 eq 80',
+        'deny tcp any host 10.30.0.1 eq 443',
+        'deny tcp any host 10.40.0.1 eq 80',
+        'deny tcp any host 10.40.0.1 eq 443',
+        'permit ip any any',
+        
+        'ip access-list extended SALES_TO_OPERATIONS_MANAGEMENT_ICMP',
+        'deny icmp any any echo',
+        'permit ip any any',
+        
+        'ip access-list extended OPERATIONS_TO_SALES_ICMP',
+        'deny icmp any any echo',
+        'permit ip any any'
+    ]
+    send_commands(connection, acl_commands)
+
+    # Applying ACLs to interfaces
+    interface_acl_commands = [
+        'interface GigabitEthernet0/0/1.20',
+        'ip access-group SALES_TO_MANAGEMENT_SSH in',
+        'ip access-group SALES_TO_MANAGEMENT_WEB in',
+        'ip access-group SALES_TO_OPERATIONS_MANAGEMENT_ICMP in',
+        
+        'interface GigabitEthernet0/0/1.30',
+        'ip access-group SALES_TO_OPERATIONS_MANAGEMENT_ICMP in',
+        
+        'interface GigabitEthernet0/0/1.40',
+        'ip access-group OPERATIONS_TO_SALES_ICMP in'
+    ]
+    send_commands(connection, interface_acl_commands)
+
+    # Saving configuration
+    save_commands = [
+        'do write memory'
+    ]
+    send_commands(connection, save_commands)
+
+    connection.close()
+    client.close()
+
+if __name__ == "__main__":
+    devices = [
+        {'ip': '192.168.1.1', 'username': 'admin', 'password': 'admin'},
+        {'ip': '192.168.1.2', 'username': 'admin', 'password': 'admin'}
+    ]
+    
+    for device in devices:
+        configure_device(device['ip'], device['username'], device['password'])
